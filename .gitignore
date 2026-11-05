@@ -1,0 +1,19 @@
+# Device evidence and third-party APK-derived analysis must NEVER be committed.
+/research/
+/.gotmp/
+/.cache/
+/dist/
+/module/bin/*
+/preview.png
+/README-ui.md
+__pycache__/
+*.pyc
+*.log
+*.apk
+*.dex
+*.p8
+*.key
+/config.json
+/state.json
+/trust.json
+/bootstrap-private.log

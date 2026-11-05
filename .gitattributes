@@ -1,0 +1,10 @@
+*.sh text eol=lf
+*.go text eol=lf
+*.mod text eol=lf
+*.js text eol=lf
+*.cjs text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+module/module.prop text eol=lf

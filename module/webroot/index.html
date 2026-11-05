@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; font-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>AndroMeld Guardian</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><div><p class="eyebrow">本机 · KernelSU WebUI</p><h1>AndroMeld <span>Guardian</span></h1></div><span id="health" class="badge">状态未知</span></header>
+    <p class="intro">让远程入口保持就绪，控制权始终在你手中。</p>
+    <section id="preview" class="notice" hidden><strong>离线预览 · 不可操作</strong><p>未检测到 KernelSU 原生桥。此页面没有真实设备数据，也不会模拟执行。</p></section>
+    <div id="feedback" class="notice" role="status" aria-live="polite" hidden></div>
+    <div class="status-meta"><span id="updated">尚未获取状态</span><button id="refresh" class="text-button" type="button">刷新</button></div>
+    <section class="cards" aria-label="入口状态">
+      <article class="card"><div class="card-heading"><h2>Daemon</h2><span id="daemon-state" class="badge">未知</span></div><p class="card-caption">守护进程</p><dl><div><dt>进程</dt><dd id="daemon-pid">未知</dd></div><div><dt>响应</dt><dd id="daemon-response">未知</dd></div><div><dt>构建</dt><dd id="daemon-build">未知</dd></div></dl></article>
+      <article class="card"><div class="card-heading"><h2>Web</h2><span id="web-state" class="badge">未知</span></div><p class="card-caption">浏览器访问入口</p><dl><div><dt>连接</dt><dd id="web-connected">未知</dd></div><div><dt>端口</dt><dd id="web-port">未知</dd></div><div><dt>保护目标</dt><dd id="web-keep">未知</dd></div></dl></article>
+      <article class="card"><div class="card-heading"><h2>Mac</h2><span id="mac-state" class="badge">未知</span></div><p class="card-caption">已配对访问 · 非永久开放配对</p><dl><div><dt>连接</dt><dd id="mac-connected">未知</dd></div><div><dt>设备连接</dt><dd id="mac-device">未知</dd></div><div><dt>保护目标</dt><dd id="mac-keep">未知</dd></div></dl></article>
+    </section>
+    <section class="panel" aria-labelledby="policy-heading">
+      <div class="policy-row"><div><h2 id="policy-heading">自动保护</h2><p id="mode-description">当前策略未知</p></div><button id="policy" class="switch" type="button" role="switch" aria-checked="false" aria-label="自动保护" disabled><span></span></button></div>
+      <p class="hint">观察只读取状态；保护会按策略尝试恢复。切回观察仅停止自动修复，不断开用户会话。</p>
+      <div class="settings-row"><label for="interval">检查间隔</label><select id="interval" disabled><option value="" disabled selected>未知</option><option value="60">1 分钟</option><option value="120">2 分钟</option><option value="300">5 分钟</option></select></div>
+      <div class="worker-line"><span id="worker">后台任务：未知</span><span id="supported">兼容性：未知</span></div>
+      <button id="tick" class="primary" type="button" disabled>立即检查</button><p class="hint">按当前已确认策略执行；仅保护模式可能修改入口或冷启动进程。</p>
+      <p id="reason" class="code-line">诊断原因：未知</p>
+    </section>
+    <section class="panel" aria-labelledby="events-heading"><div class="section-heading"><h2 id="events-heading">近期事件</h2><span id="event-count" class="muted">未知</span></div><ol id="events" class="events"><li class="muted">尚无可用事件数据</li></ol></section>
+    <footer><strong>尽力守护，不承诺永不断线</strong><p>无法保证跨网连接持续可用。不持有唤醒锁，系统休眠或后台限制可能延迟检查。页面仅在可见时每 15 秒刷新状态，不代替模块后台任务。</p><span id="version">模块版本未知</span></footer>
+  </main>
+  <dialog id="confirm"><form method="dialog"><h2>开启自动保护？</h2><p>会自动重开 Web 及已配对 Mac 访问入口；daemon 消失时会尝试冷启动。</p><ul><li>不会开放配对。</li><li>不会强杀仍存活的进程。</li><li>可能增加耗电；远程入口长期开着存在安全风险。</li></ul><p>请确认你了解这些行为，并已保护好远程访问凭据。</p><div class="dialog-actions"><button value="cancel" type="submit">暂不开启</button><button value="protect" class="primary" type="submit">同意并开启</button></div></form></dialog>
+</body>
+</html>
