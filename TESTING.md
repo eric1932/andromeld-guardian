@@ -19,6 +19,13 @@ On the vivo X Fold5 (AndroMeld 2.0.0 / 26101400) the Agent was absent from 2026-
 - Real device probe (`TestDeviceProbeShellLaunch`, root, vivo): `id` under the same credentials printed `uid=2000(shell) gid=2000(shell)` with exactly the adb-shell groups including `3003(inet)`; `app_process … com.android.commands.am.Am help` reached main as shell with the zygote-derived environment. SELinux context stays `u:r:ksu:s0`.
 - On device, the stripped 0.1.0 environment reproduced the silent exit with `am help`; adding the three APEX roots fixed it.
 
+## Installed on the vivo (2026-11-20)
+
+- `ksud module install` staged the ZIP; a soft reboot (22:43, kernel not rebooted, root kept) applied it. The old worker survived the soft reboot running the deleted 0.1.0 binary, so `hotinstall.sh` (stop + start, back to observation) was run to start the new one.
+- With the new worker the shell Agent is accepted: `daemon.responsive=true`, `reason=access_idle_or_disabled` (idle entries, normal).
+- That binary (SHA256 prefix `cbc2610451ecfefc`) still reported `"version":"0.1.0"` in `view`: the Go `version` constant had not been bumped. Fixed afterwards; the code is otherwise identical.
+- The re-notes KSU boot hook ran on the same soft reboot: it stopped the Agent older than the new system_server, found no root-owned JSON, and the App/Mac started a new shell Agent within about a minute.
+
 ## Still unverified for 0.1.1
 
 - An actual cold start of AndroMeld's `DeviceAgentMain` by Guardian after a real Agent absence (the running Agent was not killed to test it).

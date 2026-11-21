@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-const version = "0.1.0"
+const version = "0.1.1"
 const supportedBuild = 26101400
 
 type Config struct {
