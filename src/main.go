@@ -391,8 +391,8 @@ func changePolicy(mode string) error {
 		if !s.Supported {
 			return errors.New("unsupported_app_version")
 		}
-		// An existing verified root identity is required before enabling cold repair.
-		if t != nil && s.Daemon.Responsive && t.Process.UID == 0 && t.Process.EUID == 0 && privateAgentData() {
+		// An existing verified Agent identity (shell or root) is required before enabling cold repair.
+		if t != nil && s.Daemon.Responsive && acceptedAgentIdentity(t.Process) && privateAgentData() {
 			if e = rememberCertificate(); e != nil {
 				return errors.New("trusted_identity_not_saved")
 			}

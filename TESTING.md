@@ -1,3 +1,29 @@
+# Verification record — 2026-11-20 (0.1.1: shell cold start)
+
+## Why
+
+On the vivo X Fold5 (AndroMeld 2.0.0 / 26101400) the Agent was absent from 2026-11-19 13:11 to 2026-11-20 22:14 PST while 0.1.0 was in protect mode and logged ~60 `daemon_bootstrap_requested` events:
+
+- 0.1.0 cold start ran `app_process` as root with only CLASSPATH/PATH/ANDROID_ROOT/ANDROID_DATA. Without the ART/i18n/tzdata roots `app_process` exits silently before main; logcat shows no `Calling main entry` for any of those launches.
+- Official starts (Mac / App, via adbd) are uid 2000. A previously root-run Agent had left `clients.json` and `web_service.json` owned by root, so every shell start crashed with `chmod failed: EPERM` (50 times). Handing those two files back to shell restored the Agent immediately.
+
+## Change
+
+- Cold start: uid/gid 2000 + adbd shell groups; runtime variables copied from zygote by whitelist; refuses to launch when a required one is missing.
+- Accepted live identity: shell or root (uid == euid).
+- Right before launch with no Agent alive: root-owned regular `*.json` in the Agent directory → 2000:2000. Keys and the directory are never chowned; if they are not shell-owned the launch is skipped.
+
+## Checked
+
+- 36 Go unit tests pass (30 existing + 6 new: launch env, missing runtime roots, PATH default, identity, shell groups, ownership selection); `go vet` and `gofmt` clean. Run on macOS; Android binaries cross-built with Go 1.27.4 `GOOS=android GOARCH=arm64 CGO_ENABLED=0`.
+- Real device probe (`TestDeviceProbeShellLaunch`, root, vivo): `id` under the same credentials printed `uid=2000(shell) gid=2000(shell)` with exactly the adb-shell groups including `3003(inet)`; `app_process … com.android.commands.am.Am help` reached main as shell with the zygote-derived environment. SELinux context stays `u:r:ksu:s0`.
+- On device, the stripped 0.1.0 environment reproduced the silent exit with `am help`; adding the three APEX roots fixed it.
+
+## Still unverified for 0.1.1
+
+- An actual cold start of AndroMeld's `DeviceAgentMain` by Guardian after a real Agent absence (the running Agent was not killed to test it).
+- Whether anything in AndroMeld behaves differently under `ksu` vs `shell` SELinux context.
+
 # Verification record — 2026-11-05
 
 ## Build

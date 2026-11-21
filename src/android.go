@@ -23,6 +23,23 @@ const pkg = "com.catchingnow.andfiles.helper"
 const agentDir = "/data/local/tmp/AndroMeldAgent"
 const procName = pkg + ":device_agent"
 
+// The official Agent is started through adbd and runs as shell. Cold start
+// uses the same uid/gid and adbd's supplementary groups (AOSP drop_privileges);
+// inet (3003) is what lets it open sockets at all.
+const shellUID = 2000
+
+var shellGroups = []uint32{1004, 1007, 1011, 1015, 1028, 1078, 1079, 3001, 3002, 3003, 3006, 3009, 3011, 3012}
+
+// app_process silently exits before main without the ART/i18n/tzdata roots,
+// and the module worker's own environment has only PATH. Copy these from zygote.
+var launchEnvRequired = []string{"ANDROID_ROOT", "ANDROID_DATA", "ANDROID_ART_ROOT", "ANDROID_I18N_ROOT", "ANDROID_TZDATA_ROOT", "BOOTCLASSPATH"}
+var launchEnvOptional = []string{"PATH", "ANDROID_ASSETS", "ANDROID_STORAGE", "EXTERNAL_STORAGE", "ASEC_MOUNTPOINT", "DOWNLOAD_CACHE", "DEX2OATBOOTCLASSPATH", "SYSTEMSERVERCLASSPATH", "STANDALONE_SYSTEMSERVER_JARS"}
+
+var (
+	ppidInit = regexp.MustCompile(`(?m)^PPid:\s+1\s*$`)
+	uidRoot  = regexp.MustCompile(`(?m)^Uid:\s+0\s+0\s`)
+)
+
 type AgentState struct {
 	PID   int `json:"pid"`
 	Port  int `json:"port"`
@@ -445,7 +462,7 @@ func collect() (Status, *Target, Package) {
 	}
 	s.Daemon.PID = t.Process.PID
 	s.Daemon.Alive = true
-	if t.State.Build != p.Build || t.Process.UID != 0 || t.Process.EUID != 0 {
+	if t.State.Build != p.Build || !acceptedAgentIdentity(t.Process) {
 		s.Health = "blocked"
 		s.Reason = "daemon_identity_or_version_mismatch"
 		return s, nil, p
@@ -533,8 +550,13 @@ func privateAgentData() bool {
 	return true
 }
 
+// Shell is the official identity; a root-run Agent has also been observed.
+func acceptedAgentIdentity(p Identity) bool {
+	return p.UID == p.EUID && (p.UID == 0 || p.UID == shellUID)
+}
+
 // Trust only the already-enrolled public certificate captured while the live
-// root daemon was verified. Do not generate keys or alter shell/root ownership.
+// daemon was verified. Do not generate keys or change key ownership.
 func certificateDigest() (string, error) {
 	b, e := readBounded(agentDir+"/identity.crt", 65536)
 	if e != nil {
@@ -566,11 +588,19 @@ func bootstrap(p Package) error {
 	if e != nil || live {
 		return errEvidence
 	}
+	environ, e := zygoteEnviron()
+	if e != nil {
+		return errEvidence
+	}
+	env, e := launchEnv(environ, p.APK)
+	if e != nil {
+		return errEvidence
+	}
 	// Official single-instance file lock in DeviceAgentMain also arbitrates races
 	// with the app's own reconnect watcher. Do not unlink it or kill its owner.
 	cmd := exec.Command("/system/bin/app_process", "/system/bin", "--nice-name="+procName, pkg+".DeviceAgentMain")
-	cmd.Env = []string{"CLASSPATH=" + p.APK, "PATH=/system/bin:/system/xbin", "ANDROID_ROOT=/system", "ANDROID_DATA=/data"}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Env = env
+	asShell(cmd)
 	devnull, e := os.OpenFile("/dev/null", os.O_RDWR, 0)
 	if e != nil {
 		return e
@@ -580,12 +610,126 @@ func bootstrap(p Package) error {
 	cmd.Stdout = devnull
 	cmd.Stderr = devnull
 	return dispatchWhen(configStillProtect, func() error {
+		if prepareShellAgentData() != nil {
+			return errEvidence
+		}
 		if err := cmd.Start(); err != nil {
 			return errEvidence
 		}
 		go cmd.Wait() // Reap only our launched process; never signal unrelated PIDs.
 		return nil
 	})
+}
+
+// Launch as shell like adbd does. A root launch would write root-owned files
+// that later break every official (shell) start of the Agent.
+func asShell(cmd *exec.Cmd) {
+	cmd.Dir = "/"
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: &syscall.Credential{Uid: shellUID, Gid: shellUID, Groups: shellGroups}}
+}
+
+// The zygote carries init's full runtime environment. Match by name, root
+// owner and init parent, never by a recorded PID.
+func zygoteEnviron() ([]byte, error) {
+	dirs, e := os.ReadDir("/proc")
+	if e != nil {
+		return nil, e
+	}
+	for _, name := range []string{"zygote64", "zygote"} {
+		for _, d := range dirs {
+			if _, e := strconv.Atoi(d.Name()); e != nil {
+				continue
+			}
+			base := "/proc/" + d.Name() + "/"
+			b, e := readBounded(base+"cmdline", 4096)
+			if e != nil || string(bytes.SplitN(b, []byte{0}, 2)[0]) != name {
+				continue
+			}
+			st, e := readBounded(base+"status", 16384)
+			if e != nil || !ppidInit.Match(st) || !uidRoot.Match(st) {
+				continue
+			}
+			return readBounded(base+"environ", 65536)
+		}
+	}
+	return nil, errEvidence
+}
+
+// Only whitelisted runtime variables are copied; sockets and anything else
+// zygote holds are dropped.
+func launchEnv(environ []byte, apk string) ([]string, error) {
+	found := map[string]string{}
+	for _, kv := range bytes.Split(environ, []byte{0}) {
+		if k, v, ok := strings.Cut(string(kv), "="); ok {
+			found[k] = v
+		}
+	}
+	env := []string{"CLASSPATH=" + apk, "HOME=/", "TMPDIR=/data/local/tmp"}
+	if _, ok := found["PATH"]; !ok {
+		env = append(env, "PATH=/system/bin:/system/xbin")
+	}
+	for i, k := range append(append([]string{}, launchEnvRequired...), launchEnvOptional...) {
+		v, ok := found[k]
+		if !ok {
+			if i < len(launchEnvRequired) {
+				return nil, errEvidence
+			}
+			continue
+		}
+		if v == "" || strings.ContainsAny(v, "\r\n") {
+			return nil, errEvidence
+		}
+		env = append(env, k+"="+v)
+	}
+	return env, nil
+}
+
+// A root-run Agent leaves root-owned *.json that a shell Agent cannot chmod at
+// startup (EPERM crash loop, seen 2026-11-19). With no Agent alive, give only
+// root-owned regular *.json back to shell. Never follows symlinks, never
+// changes modes, never touches keys: root-owned keys block the start instead.
+func prepareShellAgentData() error {
+	owner := func(p string) (os.FileInfo, uint32, error) {
+		st, e := os.Lstat(p)
+		if e != nil {
+			return nil, 0, e
+		}
+		sys, ok := st.Sys().(*syscall.Stat_t)
+		if !ok {
+			return nil, 0, errEvidence
+		}
+		return st, sys.Uid, nil
+	}
+	st, uid, e := owner(agentDir)
+	if e != nil || !st.IsDir() || uid != shellUID {
+		return errEvidence
+	}
+	for _, key := range []string{"identity.p8", "identity.crt"} {
+		if st, uid, e := owner(agentDir + "/" + key); e != nil || !st.Mode().IsRegular() || uid != shellUID {
+			return errEvidence
+		}
+	}
+	entries, e := os.ReadDir(agentDir)
+	if e != nil {
+		return errEvidence
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		p := agentDir + "/" + entry.Name()
+		st, uid, e := owner(p)
+		if e != nil {
+			return errEvidence
+		}
+		if needsShellOwner(st.Mode(), uid) && os.Lchown(p, shellUID, shellUID) != nil {
+			return errEvidence
+		}
+	}
+	return nil
+}
+func needsShellOwner(mode os.FileMode, uid uint32) bool {
+	return mode.IsRegular() && uid == 0
 }
 
 // Check policy/stop/module flags at the dispatch boundary, after all expensive

@@ -1,4 +1,4 @@
-# AndroMeld Guardian — KernelSU + WebUI (test build 0.1.0)
+# AndroMeld Guardian — KernelSU + WebUI (test build 0.1.1)
 
 Android 本机、arm64、KernelSU。不是 Aether Extension，不需要 Termux/Python/Node 在后台运行，也不是电脑 ADB 服务。
 
@@ -20,7 +20,8 @@ Android 本机、arm64、KernelSU。不是 Aether Extension，不需要 Termux/P
 - 保护 Web 入口和**已配对 Mac 的 MacLink**；绝不长期开放 `pairing.toggle`/Mac 配对入口。
 - 没有客户端连接是正常状态，不会据此重启 daemon。
 - 无连接时大约每3分钟通过应用本身的唤醒处理链续期 idle 窗口；不开独立公网/本地 HTTP 服务、不发云端推送、不修改 SharedPreferences、idle常量、账号或配对数据。
-- daemon 确认消失且连续3次检查缺失时，尝试按当前APK启动官方 `DeviceAgentMain`。要求之前核验过其 root 身份、保存过既有公开证书摘要，且既有数据文件符合验证条件。**单实例锁交给应用本身，不删除锁**。
+- daemon 确认消失且连续3次检查缺失时，尝试按当前APK启动官方 `DeviceAgentMain`。要求之前核验过其身份（shell 或 root）、保存过既有公开证书摘要，且既有数据文件符合验证条件。**单实例锁交给应用本身，不删除锁**。
+- 冷启动和官方（Mac / App 经 adbd）一样以 **shell 身份**拉起：uid/gid 2000，附加组与 adbd 的 shell 相同（含 inet 3003）；运行时环境变量（`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH` 等）从 zygote 白名单复制。0.1.0 以 root 拉起且只带 4 个环境变量：`app_process` 在进入 main 前静默退出，冷启动从未成功；而只要 root 身份的 Agent 跑过一次，它留下的 root 属主 JSON 会让之后每次 shell 启动 chmod 报 EPERM 崩溃。SELinux 上下文仍是模块自己的 `ksu`（官方为 `shell`）。
 - 活进程管理接口卡住时报告异常，不强杀、不自动重启，避免破坏正在进行的连接。没有“永不断线”承诺：网络/TURN/浏览器/服务器故障仍可能导致 ICE 失败。
 
 ## 运行方式
@@ -40,7 +41,8 @@ Android 本机、arm64、KernelSU。不是 Aether Extension，不需要 Termux/P
 - 自动唤醒只发送本机 root 显式广播到固定的 FirebaseInstanceIdReceiver，固定`t=open_web_service`或`t=open_mac_link`，由 AndroMeld 自己执行 consent/发现模式门禁、网关/prefs/FGS同步和失败回滚。这**不是**测试真实FCM云端链路。
 - 恢复不成功或回包未知时，先持久化的尝试记录保留冷却，防止重试风暴。每通道3分钟冷却/每小时最多24次；冷启动10分钟冷却/每小时最多3次。历史损坏、异常缺失或解析失败时，保护模式只观察、不覆盖成空历史；需先切观察并做一次检查，再重新确认保护。
 - 在昂贵查询完成后、真正发广播或启动进程的紧前再次检查保护策略和stop/disable/remove标志。已经交给系统执行的调用无法撤回，但不会再发下一条恢复请求。
-- 已有设备上历史数据目录和identity可由shell(2000)拥有、daemon为root。只允许root/shell的私有常规文件，拒绝符号链接与宽松权限，**不chown/chmod应用数据**。冷启动前比较已记录的公开证书SHA256，避免在未知身份上重新登记。
+- 历史数据目录和identity由shell(2000)拥有，daemon可能是shell（官方）或root。只允许root/shell的私有常规文件，拒绝符号链接与宽松权限。冷启动前比较已记录的公开证书SHA256，避免在未知身份上重新登记。
+- **唯一的属主改动**：冷启动紧前、确认没有 Agent 在跑时，把 `AndroMeldAgent/` 里 root 属主的普通 `*.json` 改回 2000:2000（不跟符号链接、不改权限位）。目录或 `identity.p8`/`identity.crt` 不属于 shell 时不改密钥、直接放弃本次冷启动。与 re-notes 里 KSU 开机脚本 `andromeld-boot-fix.sh` 的处理一致。
 - `/data/adb/andromeld_guardian`（0700）保存配置、公开证书摘要、状态和最多60条分类事件（文件0600），没有私钥/token/客户端名称/原始应用日志。
 - 每次安装/升级（热安装和重启后生效两条路径）都会在新模块中写入`reauthorize`标记，强制观察；只有用户明确切换保护时才移除此标记。热升级还会先停止自己的worker；不自动延续新代码的修复授权。停止若超时，stop标记仍持续禁止变更，后续start会先落盘观察才清除标记。卸载为避免并发删除竞态保留上述小型私有数据目录，确认进程停止后可手动删除；重装默认的热安装脚本仍会重置为观察。
 - 控制面板只有固定命令，无任意shell输入、CDN、远端脚本、网络请求或HTML注入。
