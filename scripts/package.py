@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / 'module'
 PAYLOAD = (
     'bin/guardian', 'customize.sh', 'hotinstall.sh', 'module.prop',
-    'reauthorize', 'service.sh', 'skip_mount', 'uninstall.sh',
+    'service.sh', 'skip_mount', 'uninstall.sh',
     'webroot/app.js', 'webroot/index.html', 'webroot/style.css',
 )
 

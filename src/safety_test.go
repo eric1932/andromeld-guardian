@@ -6,14 +6,23 @@ import (
 	"testing"
 )
 
-func TestUpgradeMarkerAlwaysRevokesOldProtection(t *testing.T) {
-	c, _, _, _ := fixture()
-	got := consentConfig(c, true)
-	if got.Mode != "observe" {
-		t.Fatal("staged upgrade inherited old protection")
+// The switch survives a restart/upgrade; only a user stop revokes protection.
+func TestRestartMarkerKeepsSwitchButStopDoesNot(t *testing.T) {
+	if !restartOnly([]byte(restartMarker)) {
+		t.Fatal("restart would reset protection")
 	}
-	if consentConfig(c, false).Mode != "protect" {
-		t.Fatal("explicitly authorized policy lost")
+	for _, b := range []string{"stop\n", "", "restart", "restart\nstop\n"} {
+		if restartOnly([]byte(b)) {
+			t.Fatal("user stop treated as restart", b)
+		}
+	}
+}
+func TestOnlyReplacedBinaryCountsAsStale(t *testing.T) {
+	if !replacedBinary("/data/adb/modules/andromeld_guardian/bin/guardian (deleted)") {
+		t.Fatal("replaced worker binary not detected")
+	}
+	if replacedBinary("/data/adb/modules/andromeld_guardian/bin/guardian") {
+		t.Fatal("current worker would be restarted")
 	}
 }
 func TestLateStopGatePreventsDispatch(t *testing.T) {

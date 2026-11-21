@@ -103,14 +103,9 @@ func loadConfig() (Config, error) {
 	if !os.IsNotExist(e) && (e != nil || !validConfig(c)) {
 		return defaultConfig(), errors.New("invalid_config_observation_only")
 	}
-	_, markerErr := os.Lstat(filepath.Join(moduleDir(), "reauthorize"))
-	return consentConfig(c, !os.IsNotExist(markerErr)), nil
-}
-func consentConfig(c Config, needsConsent bool) Config {
-	if needsConsent {
-		c.Mode = "observe"
-	}
-	return c
+	// The user's switch is kept across reboots, upgrades and worker restarts;
+	// only the switch itself, `stop` or uninstall turns protection off.
+	return c, nil
 }
 func decodeStore(b []byte) (Store, error) {
 	var s Store
@@ -286,14 +281,22 @@ func startWorker() error {
 		return errors.New("module_disabled")
 	}
 	if workerRunning() {
+		// A soft reboot applies a staged upgrade but keeps the old worker alive
+		// on the replaced binary; swap it for the new code.
+		if staleWorker() {
+			return restartWorker()
+		}
 		return nil
 	}
-	if _, e := os.Stat(filepath.Join(dataDir, "stop")); e == nil {
-		// A stop that timed out remains a persistent revocation, even on start.
-		c, _ := loadConfig()
-		c.Mode = "observe"
-		if e = saveJSON("config.json", c); e != nil {
-			return e
+	if b, e := os.ReadFile(filepath.Join(dataDir, "stop")); e == nil {
+		// A user stop that timed out remains a revocation, even on start.
+		// A restart marker only asked the old worker to exit.
+		if !restartOnly(b) {
+			c, _ := loadConfig()
+			c.Mode = "observe"
+			if e = saveJSON("config.json", c); e != nil {
+				return e
+			}
 		}
 		if e = os.Remove(filepath.Join(dataDir, "stop")); e != nil {
 			return e
@@ -307,6 +310,55 @@ func startWorker() error {
 	}
 	return launchWorker(self)
 }
+
+const restartMarker = "restart\n"
+
+func restartOnly(stopFile []byte) bool { return string(stopFile) == restartMarker }
+
+// Restart our own worker without touching the protect/observe switch.
+func restartWorker() error {
+	if unavailableModule() {
+		return errors.New("module_disabled")
+	}
+	if e := os.WriteFile(filepath.Join(dataDir, "stop"), []byte(restartMarker), 0600); e != nil {
+		return e
+	}
+	end := time.Now().Add(12 * time.Second)
+	for workerRunning() {
+		if !time.Now().Before(end) {
+			// The marker stays; the next start removes it without changing the switch.
+			return errors.New("worker_stopping_not_yet_confirmed")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return startWorker()
+}
+
+// Our worker whose binary was replaced on disk (exe link ends in " (deleted)").
+func staleWorker() bool {
+	self, e := os.Executable()
+	if e != nil {
+		return false
+	}
+	dirs, e := os.ReadDir("/proc")
+	if e != nil {
+		return false
+	}
+	for _, d := range dirs {
+		if _, e := strconv.Atoi(d.Name()); e != nil {
+			continue
+		}
+		b, e := os.ReadFile("/proc/" + d.Name() + "/cmdline")
+		if e != nil || string(b) != self+"\x00worker\x00" {
+			continue
+		}
+		if link, e := os.Readlink("/proc/" + d.Name() + "/exe"); e == nil && replacedBinary(link) {
+			return true
+		}
+	}
+	return false
+}
+func replacedBinary(exeLink string) bool { return strings.HasSuffix(exeLink, " (deleted)") }
 func worker() error {
 	lock, e := acquire("worker.lock")
 	if e != nil {
@@ -406,7 +458,7 @@ func changePolicy(mode string) error {
 	if e = saveJSON("config.json", c); e != nil {
 		return e
 	}
-	// Only this explicit user policy command can re-authorize a new installation.
+	// Clean up a leftover 0.1.0/0.1.1 install marker; it no longer has any effect.
 	if mode == "protect" {
 		if e = os.Remove(filepath.Join(moduleDir(), "reauthorize")); e != nil && !os.IsNotExist(e) {
 			return e
@@ -497,6 +549,12 @@ func main() {
 			err = errors.New("invalid_arguments")
 		} else {
 			err = pauseAndStop()
+		}
+	case "restart":
+		if len(args) != 1 {
+			err = errors.New("invalid_arguments")
+		} else {
+			err = restartWorker()
 		}
 	case "worker":
 		if len(args) != 1 {

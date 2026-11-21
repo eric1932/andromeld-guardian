@@ -1,6 +1,6 @@
 id=andromeld_guardian
 name=AndroMeld Guardian
-version=v0.1.1
-versionCode=101
+version=v0.1.2
+versionCode=102
 author=eric1932
 description=Android-local AndroMeld access guardian with WebUI. Default observation; optional Web and paired-Mac recovery. No pairing unlock, force-kill or wakelock.

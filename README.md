@@ -1,4 +1,4 @@
-# AndroMeld Guardian — KernelSU + WebUI (test build 0.1.1)
+# AndroMeld Guardian — KernelSU + WebUI (test build 0.1.2)
 
 Android 本机、arm64、KernelSU。不是 Aether Extension，不需要 Termux/Python/Node 在后台运行，也不是电脑 ADB 服务。
 
@@ -44,7 +44,8 @@ Android 本机、arm64、KernelSU。不是 Aether Extension，不需要 Termux/P
 - 历史数据目录和identity由shell(2000)拥有，daemon可能是shell（官方）或root。只允许root/shell的私有常规文件，拒绝符号链接与宽松权限。冷启动前比较已记录的公开证书SHA256，避免在未知身份上重新登记。
 - **唯一的属主改动**：冷启动紧前、确认没有 Agent 在跑时，把 `AndroMeldAgent/` 里 root 属主的普通 `*.json` 改回 2000:2000（不跟符号链接、不改权限位）。目录或 `identity.p8`/`identity.crt` 不属于 shell 时不改密钥、直接放弃本次冷启动。与 re-notes 里 KSU 开机脚本 `andromeld-boot-fix.sh` 的处理一致。
 - `/data/adb/andromeld_guardian`（0700）保存配置、公开证书摘要、状态和最多60条分类事件（文件0600），没有私钥/token/客户端名称/原始应用日志。
-- 每次安装/升级（热安装和重启后生效两条路径）都会在新模块中写入`reauthorize`标记，强制观察；只有用户明确切换保护时才移除此标记。热升级还会先停止自己的worker；不自动延续新代码的修复授权。停止若超时，stop标记仍持续禁止变更，后续start会先落盘观察才清除标记。卸载为避免并发删除竞态保留上述小型私有数据目录，确认进程停止后可手动删除；重装默认的热安装脚本仍会重置为观察。
+- **开关打开就一直保持**（0.1.2 起）：保护/观察开关存在 `/data/adb/andromeld_guardian/config.json`，重启、软重启、升级、热安装都不改它；只有用户在 WebUI 里关掉、执行 `stop` 或卸载才回到观察。首次安装默认观察。0.1.0/0.1.1 每次安装都写 `reauthorize` 标记强制回到观察，0.1.2 不再写，残留的标记也不再生效。
+- 热安装和开机启动只重启自己的 worker（`restart`，写入 `restart` 标记让旧 worker 退出，不改开关）。软重启会应用暂存升级但旧 worker 仍在跑已被替换的二进制；开机 `start` 发现 worker 的 exe 是 `(deleted)` 时自动换成新 worker。用户 `stop` 若超时，stop 标记仍持续禁止变更，后续 start 会先落盘观察才清除标记。卸载为避免并发删除竞态保留上述小型私有数据目录，确认进程停止后可手动删除。
 - 控制面板只有固定命令，无任意shell输入、CDN、远端脚本、网络请求或HTML注入。
 
 ## CLI（root，Android本机）
@@ -57,9 +58,10 @@ Android 本机、arm64、KernelSU。不是 Aether Extension，不需要 Termux/P
 /data/adb/modules/andromeld_guardian/bin/guardian interval 60
 /data/adb/modules/andromeld_guardian/bin/guardian stop
 /data/adb/modules/andromeld_guardian/bin/guardian start
+/data/adb/modules/andromeld_guardian/bin/guardian restart
 ```
 
-`view`是缓存，必须看`checked_at`和worker状态。`tick`为一次实时检查，保护模式下可能恢复入口；默认观察不会变更AndroMeld。`stop`停自己的worker并切回观察，绝不杀AndroMeld。
+`view`是缓存，必须看`checked_at`和worker状态。`tick`为一次实时检查，保护模式下可能恢复入口；默认观察不会变更AndroMeld。`stop`停自己的worker并切回观察，绝不杀AndroMeld。`restart`只换一个新worker，不改开关。
 
 ## 构建与测试
 

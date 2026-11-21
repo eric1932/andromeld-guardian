@@ -1,3 +1,11 @@
+# Verification record — 2026-11-20 (0.1.2: the switch stays on)
+
+- Owner's choice: once protection is on it stays on until the user turns it off. No `reauthorize` marker in the package or `customize.sh`; a leftover marker is ignored.
+- `restart` (used by `hotinstall.sh`) replaces only the worker and keeps the switch. A `stop` file containing `restart\n` is not a revocation; any other content still is.
+- `start` replaces a running worker whose `/proc/<pid>/exe` ends in ` (deleted)`. On 2026-11-20 a soft reboot applied a staged 0.1.1 while the 0.1.0 worker kept running the deleted binary.
+- Go tests and 12 WebUI checks pass (the marker test is replaced by restart-marker and stale-binary tests).
+- Not yet verified on the device at the time of this commit: install, the soft-reboot swap of the stale worker, and the switch surviving it.
+
 # Verification record — 2026-11-20 (0.1.1: shell cold start)
 
 ## Why
